@@ -166,6 +166,7 @@ export const documentRouter = router({
         user,
         period,
         search: query,
+        folderId,
       };
 
       if (teamId) {
@@ -325,7 +326,7 @@ export const documentRouter = router({
     .input(ZCreateDocumentRequestSchema)
     .mutation(async ({ input, ctx }) => {
       const { teamId } = ctx;
-      const { title, documentDataId, timezone } = input;
+      const { title, documentDataId, timezone, folderId } = input;
 
       const { remaining } = await getServerLimits({ email: ctx.user.email, teamId });
 
@@ -344,6 +345,7 @@ export const documentRouter = router({
         normalizePdf: true,
         timezone,
         requestMetadata: ctx.metadata,
+        folderId,
       });
     }),
 
