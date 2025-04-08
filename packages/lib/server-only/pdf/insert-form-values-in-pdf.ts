@@ -1,5 +1,6 @@
 import fontkit from '@pdf-lib/fontkit';
 import { PDFCheckBox, PDFDocument, PDFDropdown, PDFRadioGroup, PDFTextField } from 'pdf-lib';
+
 import { NEXT_PUBLIC_WEBAPP_URL } from '../../constants/app';
 
 export type InsertFormValuesInPdfOptions = {
@@ -9,131 +10,47 @@ export type InsertFormValuesInPdfOptions = {
 
 export const insertFormValuesInPdf = async ({ pdf, formValues }: InsertFormValuesInPdfOptions) => {
   const doc = await PDFDocument.load(pdf);
-
-  // Register fontkit to enable custom font embedding
   doc.registerFontkit(fontkit);
-  
-  // Fetch and embed a font with Vietnamese character support
-  let customFont: any;
-  try {
-    const fontBytes = await fetch(`${NEXT_PUBLIC_WEBAPP_URL()}/fonts/noto-sans.ttf`).then(
-      async (res) => res.arrayBuffer()
-    );
-    
-    customFont = await doc.embedFont(fontBytes);
-    
-    const form = doc.getForm();
-    
-    if (!form) {
-      return pdf;
-    }
 
-    // Process fields first
-    for (const [key, value] of Object.entries(formValues)) {
-      try {
-        const field = form.getField(key);
+  const fontBytes = await fetch(`${NEXT_PUBLIC_WEBAPP_URL()}/fonts/noto-sans.ttf`).then(
+    async (res) => res.arrayBuffer(),
+  );
 
-        if (!field) {
-          continue;
-        }
+  const customFont = await doc.embedFont(fontBytes);
 
-        if (typeof value === 'boolean' && field instanceof PDFCheckBox) {
-          if (value) {
-            field.check();
-          } else {
-            field.uncheck();
-          }
-        }
+  const form = doc.getForm();
 
-        if (field instanceof PDFTextField) {
-          field.setText(value.toString());
-          // Apply custom font to text fields specifically
-          field.updateAppearances(customFont);
-        }
+  if (!form) {
+    return pdf;
+  }
 
-        if (field instanceof PDFDropdown) {
-          field.select(value.toString());
-        }
+  for (const [key, value] of Object.entries(formValues)) {
+    try {
+      const field = form.getField(key);
 
-        if (field instanceof PDFRadioGroup) {
-          field.select(value.toString());
-        }
-      } catch (err) {
-        if (err instanceof Error) {
-          console.error(`Error setting value for field ${key}: ${err.message}`);
-        } else {
-          console.error(`Error setting value for field ${key}`);
-        }
+      if (!field) {
+        continue;
       }
-    }
 
-    // Only for text fields that might contain Vietnamese text,
-    // override the updateFieldAppearances method
-    const originalUpdateFieldAppearances = form.updateFieldAppearances.bind(form);
-    form.updateFieldAppearances = function() {
-      // Get all text fields
-      const textFields = form.getFields()
-        .filter(field => field instanceof PDFTextField)
-        .map(field => field as PDFTextField);
-      
-      // Update appearance of text fields with custom font
-      for (const textField of textFields) {
-        textField.updateAppearances(customFont);
+      if (typeof value === 'boolean' && field instanceof PDFCheckBox) {
+        value ? field.check() : field.uncheck();
       }
-      
-      // For non-text fields, use default behavior
-      return originalUpdateFieldAppearances();
-    };
-    
-    // Call the form update to apply changes
-    form.updateFieldAppearances();
-    
-  } catch (fontError) {
-    console.error('Error embedding custom font:', fontError);
-    
-    // Fallback to regular processing without custom font
-    const form = doc.getForm();
-    
-    if (!form) {
-      return pdf;
-    }
 
-    for (const [key, value] of Object.entries(formValues)) {
-      try {
-        const field = form.getField(key);
-
-        if (!field) {
-          continue;
-        }
-
-        if (typeof value === 'boolean' && field instanceof PDFCheckBox) {
-          if (value) {
-            field.check();
-          } else {
-            field.uncheck();
-          }
-        }
-
-        if (field instanceof PDFTextField) {
-          field.setText(value.toString());
-        }
-
-        if (field instanceof PDFDropdown) {
-          field.select(value.toString());
-        }
-
-        if (field instanceof PDFRadioGroup) {
-          field.select(value.toString());
-        }
-      } catch (err) {
-        if (err instanceof Error) {
-          console.error(`Error setting value for field ${key}: ${err.message}`);
-        } else {
-          console.error(`Error setting value for field ${key}`);
-        }
+      if (field instanceof PDFTextField) {
+        field.setText(value.toString());
       }
+
+      if (field instanceof PDFDropdown || field instanceof PDFRadioGroup) {
+        field.select(value.toString());
+      }
+    } catch (err) {
+      console.error(
+        `Error setting value for field ${key}: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      );
     }
   }
 
-  return await doc.save().then((buf) => Buffer.from(buf));
+  form.updateFieldAppearances(customFont);
+
+  return Buffer.from(await doc.save());
 };
