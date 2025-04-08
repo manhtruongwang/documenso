@@ -15,6 +15,7 @@ GIT_SHA="$(git rev-parse HEAD)"
 echo "Building docker image for monorepo at $MONOREPO_ROOT"
 echo "App version: $APP_VERSION"
 echo "Git SHA: $GIT_SHA"
+echo "Script directory: $SCRIPT_DIR"
 
 # Build with temporary base tag
 docker build -f "$SCRIPT_DIR/Dockerfile" \
