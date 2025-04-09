@@ -1,9 +1,9 @@
 ###########################
 #     BASE CONTAINER      #
 ###########################
-FROM node:22-alpine3.20 AS base
+FROM node:22-slim AS base
 
-RUN apk add --no-cache openssl
+RUN apt-get update && apt-get install -y openssl libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
 
 
 ###########################
@@ -11,9 +11,6 @@ RUN apk add --no-cache openssl
 ###########################
 FROM base AS builder
 
-# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
-RUN apk add --no-cache libc6-compat
-RUN apk add --no-cache jq
 WORKDIR /app
 
 COPY . .
@@ -29,14 +26,7 @@ RUN turbo prune --scope=@documenso/remix --docker
 ###########################
 FROM base AS installer
 
-# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
-RUN apk add --no-cache libc6-compat
-RUN apk add --no-cache jq
-# Required for node_modules/aws-crt
-RUN apk add --no-cache make cmake g++ openssl bash
-
-# Install the dependencies for the app
-RUN npx playwright install --with-deps chromium
+RUN apt-get update && apt-get install -y jq make cmake g++ bash
 
 WORKDIR /app
 
@@ -70,10 +60,13 @@ RUN npm ci
 
 # Then copy all the source code (as it changes more often)
 COPY --from=builder /app/out/full/ .
+
 # Finally copy the turbo.json file so that we can run turbo commands
 COPY turbo.json turbo.json
 
 RUN npm install -g "turbo@^1.9.3"
+
+RUN npx playwright install --with-deps chromium
 
 RUN turbo run build --filter=@documenso/remix...
 
@@ -86,34 +79,40 @@ ENV HUSKY 0
 ENV DOCKER_OUTPUT 1
 
 # Don't run production as root
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nodejs
-
-USER nodejs
+RUN groupadd --system --gid 1001 nodejs
+RUN useradd --system --uid 1001 --gid nodejs nodejs
 
 WORKDIR /app
 
-COPY --from=builder --chown=nodejs:nodejs /app/out/json/ .
+COPY --from=builder /app/out/json/ .
 # Copy the tailwind config files across
-COPY --from=builder --chown=nodejs:nodejs /app/out/full/packages/tailwind-config ./packages/tailwind-config
+COPY --from=builder /app/out/full/packages/tailwind-config ./packages/tailwind-config
 
+# Install dependencies as root
 RUN npm ci --only=production
 
-# Automatically leverage output traces to reduce image size
-# https://nodejs.org/docs/advanced-features/output-file-tracing
-COPY --from=installer --chown=nodejs:nodejs /app/apps/remix/build ./apps/remix/build
-COPY --from=installer --chown=nodejs:nodejs /app/apps/remix/public ./apps/remix/public
+# Copy the built files
+COPY --from=installer /app/apps/remix/build ./apps/remix/build
+COPY --from=installer /app/apps/remix/public ./apps/remix/public
 
 # Copy the prisma binary, schema and migrations
-COPY --from=installer --chown=nodejs:nodejs /app/packages/prisma/schema.prisma ./packages/prisma/schema.prisma
-COPY --from=installer --chown=nodejs:nodejs /app/packages/prisma/migrations ./packages/prisma/migrations
+COPY --from=installer /app/packages/prisma/schema.prisma ./packages/prisma/schema.prisma
+COPY --from=installer /app/packages/prisma/migrations ./packages/prisma/migrations
 
-# Generate the prisma client again
+# Copy playwright browsers
+COPY --from=installer /root/.cache/ms-playwright /home/nodejs/.cache/ms-playwright
+
+# Generate the prisma client as root
 RUN npx prisma generate --schema ./packages/prisma/schema.prisma
 
+# Copy the start script
+COPY ./docker/start.sh /app/apps/remix/start.sh
 
-# Get the start script from docker/start.sh
-COPY --chown=nodejs:nodejs ./docker/start.sh /app/apps/remix/start.sh
+# Fix permissions for the nodejs user
+RUN chown -R nodejs:nodejs /app
+
+# Switch to non-root user after all setup is done
+USER nodejs
 
 WORKDIR /app/apps/remix
 
